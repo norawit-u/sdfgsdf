@@ -40,6 +40,7 @@ import re
 from tensorflow.python.platform import gfile
 import math
 from six import iteritems
+import horovod.tensorflow as hvd
 
 def triplet_loss(anchor, positive, negative, alpha):
     """Calculate the triplet loss according to the FaceNet paper
@@ -49,7 +50,7 @@ def triplet_loss(anchor, positive, negative, alpha):
       positive: the embeddings for the positive images.
       negative: the embeddings for the negative images.
   
-    Returns:
+    Returns:-
       the triplet loss according to the FaceNet paper as a float tensor.
     """
     with tf.variable_scope('triplet_loss'):
@@ -108,9 +109,9 @@ def create_input_pipeline(input_queue, image_size, nrof_preprocess_threads, batc
         for filename in tf.unstack(filenames):
             file_contents = tf.read_file(filename)
             image = tf.image.decode_image(file_contents, 3)
-            image = tf.cond(get_control_flag(control[0], RANDOM_ROTATE),
-                            lambda:tf.py_func(random_rotate_image, [image], tf.uint8), 
-                            lambda:tf.identity(image))
+#            image = tf.cond(get_control_flag(control[0], RANDOM_ROTATE),
+#                            lambda:tf.py_func(random_rotate_image, [image], tf.uint8), 
+#                            lambda:tf.identity(image))
             image = tf.cond(get_control_flag(control[0], RANDOM_CROP), 
                             lambda:tf.random_crop(image, image_size + (3,)), 
                             lambda:tf.image.resize_image_with_crop_or_pad(image, image_size[0], image_size[1]))
@@ -183,7 +184,7 @@ def train(total_loss, global_step, optimizer, learning_rate, moving_average_deca
             opt = tf.train.MomentumOptimizer(learning_rate, 0.9, use_nesterov=True)
         else:
             raise ValueError('Invalid optimization algorithm')
-    
+#        opt = hvd.DistributedOptimizer(opt)
         grads = opt.compute_gradients(total_loss, update_gradient_vars)
         
     # Apply gradients.
@@ -569,3 +570,4 @@ def write_arguments_to_file(args, filename):
     with open(filename, 'w') as f:
         for key, value in iteritems(vars(args)):
             f.write('%s: %s\n' % (key, str(value)))
+

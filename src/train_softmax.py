@@ -43,6 +43,10 @@ import tensorflow.contrib.slim as slim
 from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
+import horovod.tensorflow as hvd
+
+# Horovod: initialize Horovod.
+hvd.init()
 
 def main(args):
   
@@ -52,10 +56,16 @@ def main(args):
     subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
     if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
-        os.makedirs(log_dir)
+        try:
+            os.makedirs(log_dir)
+        except OSError as exc: 
+            print(exc)
     model_dir = os.path.join(os.path.expanduser(args.models_base_dir), subdir)
     if not os.path.isdir(model_dir):  # Create the model directory if it doesn't exist
-        os.makedirs(model_dir)
+        try:
+            os.makedirs(model_dir)
+        except OSError as exc:
+            print(exc)
 
     stat_file_name = os.path.join(log_dir, 'stat.h5')
 
@@ -188,9 +198,16 @@ def main(args):
 
         # Start running operations on the Graph.
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_memory_fraction)
-        sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
+        config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False)
+        config.gpu_options.visible_device_list = str(hvd.local_rank())
+        sess = tf.Session(config=config)
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
+        # Horovod: broadcast initial variable states from rank 0 to all other processes.
+        # This is necessary to ensure consistent initialization of all workers when
+        # training is started with random weights or restored from a checkpoint.
+        bcast = hvd.broadcast_global_variables(0)
+
         summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
         coord = tf.train.Coordinator()
         tf.train.start_queue_runners(coord=coord, sess=sess)
@@ -257,7 +274,7 @@ def main(args):
 
                 print('Saving statistics')
                 with h5py.File(stat_file_name, 'w') as f:
-                    for key, value in stat.iteritems():
+                    for key, value in stat.items():
                         f.create_dataset(key, data=value)
     
     return model_dir
